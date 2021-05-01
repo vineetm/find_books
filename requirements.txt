@@ -1,0 +1,7 @@
+bs4
+jupyter
+pandas
+requests
+xlsxwriter
+xlrd
+
