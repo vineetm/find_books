@@ -24,17 +24,19 @@ def get_book_names_and_url(author_url, skip_books, all_books):
 
     soup = BeautifulSoup(r.text, features="html.parser")
 
-    num_added = 0
+    num_added, num_skipped = 0, 0
     for book in soup.find_all(class_='bookTitle'):
         if book["href"].find("/book/show") == -1:
             continue
 
         book_name = book.text.strip()
         if book_name in skip_books:
+            num_skipped += 1
             continue
 
         if book_name in all_books:
             logging.info(f'{book_name} already present')
+            num_skipped += 1
             continue
 
         logging.info(book_name)
@@ -42,8 +44,6 @@ def get_book_names_and_url(author_url, skip_books, all_books):
         logging.info(book_url)
 
         book_editions_url = find_editions_page(book_url)
-        print(book_editions_url)
-
         isbns = get_isbns(book_editions_url)
         logging.info(f'#ISBNs {len(isbns)}')
 
@@ -56,18 +56,20 @@ def get_book_names_and_url(author_url, skip_books, all_books):
         logging.info(f'#BookChor: {len(bookchor_present)}')
 
         shbi_present = is_shbi_instock(book_name)
-        logging.info(f'shbi: {shbi_present}')
+        bookish_santa = is_bookish_santa_instock(book_name)
+        logging.info(f'shbi: {shbi_present} bookish_santa: {bookish_santa}')
 
-        all_books[book_name] = (book_name, book_url, book_editions_url, isbns, bookchor_present, shbi_present)
+        all_books[book_name] = (book_name, book_url, book_editions_url, isbns, bookchor_present, shbi_present,
+                                bookish_santa)
         num_added += 1
         logging.info(f'Done Book# {num_added}')
-    return num_added
+    return num_added, num_skipped
 
 
 def write_csv(books, csv_name):
     with open(csv_name, 'w') as fw:
         writer = csv.writer(fw)
-        writer.writerow(['Book Name', 'URL', 'Editions', 'ISBNS', 'Bookchor', 'SHBI'])
+        writer.writerow(['Book Name', 'URL', 'Editions', 'ISBNS', 'Bookchor', 'SHBI', 'Bookish Santa'])
         for book_name in books:
             book = books[book_name]
             datum = []
@@ -152,22 +154,22 @@ def main():
     for page_num in range(1, 100):
         author_url = f'{series_url}?page={page_num}&per_page=50'
         logging.info(f'Page#{page_num}: {author_url}')
-        num = get_book_names_and_url(author_url, covered_books, all_books)
-        if not num:
+        num_added, num_skipped = get_book_names_and_url(author_url, covered_books, all_books)
+        if not num_skipped and not num_added:
             logging.info(f'Stopping at Page: {page_num}')
             break
         write_csv(all_books, csv_name)
         write_excel(csv_name, report_name)
         logging.info(f'Saved Info for {len(all_books)}')
 
-        with open(results_file, 'wb') as fw:
-            pkl.dump(all_books, fw)
-        time.sleep(240)
+        if num_added:
+            with open(results_file, 'wb') as fw:
+                pkl.dump(all_books, fw)
 
     logging.info(f'All Done!')
     write_csv(all_books, csv_name)
     write_excel(csv_name, report_name)
-    fw.close()
+    os.remove(csv_name)
 
 
 if __name__ == '__main__':

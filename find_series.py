@@ -1,9 +1,7 @@
-from bs4 import BeautifulSoup
 import argparse
 import csv
 import pandas as pd
-import requests
-import re
+import os
 import logging
 from utils import *
 logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
@@ -48,9 +46,10 @@ def get_book_names_and_url(series_url, skip_books):
         logging.info(f'#BookChor: {len(bookchor_present)}')
 
         shbi_present = is_shbi_instock(book_name)
-        logging.info(f'shbi: {shbi_present}')
+        bookish_santa = is_bookish_santa_instock(book_name)
+        logging.info(f'shbi: {shbi_present} bookish_santa: {bookish_santa}')
 
-        books.append((book_name, book_url, book_editions_url, isbns, bookchor_present, shbi_present))
+        books.append((book_name, book_url, book_editions_url, isbns, bookchor_present, shbi_present, bookish_santa))
         logging.info(f'Done Book# {len(books)}')
     return books
 
@@ -58,7 +57,7 @@ def get_book_names_and_url(series_url, skip_books):
 def write_csv(books, csv_name):
     with open(csv_name, 'w') as fw:
         writer = csv.writer(fw)
-        writer.writerow(['Book Name', 'URL', 'Editions', 'ISBNS', 'Bookchor', 'SHBI'])
+        writer.writerow(['Book Name', 'URL', 'Editions', 'ISBNS', 'Bookchor', 'SHBI', 'Bookish Santa'])
         for book in books:
             datum = []
             datum.append(book[0])
@@ -77,6 +76,7 @@ def write_csv(books, csv_name):
             datum.append(','.join(isbns))
             datum.append(','.join(bc_isbns))
             datum.append(book[5])
+            datum.append(book[6])
             writer.writerow(datum)
 
 
@@ -123,14 +123,24 @@ def main():
     logging.info(args)
 
     series_url, covered_books = get_info(args.prefix)
-    logging.info(f'inputs/{args.prefix} URL: {series_url} #Covered Books: {len(covered_books)}')
 
-    books = get_book_names_and_url(series_url, covered_books)
+    all_books = []
+    for page_num in range(1, 100):
+        url = f'{series_url}?page={page_num}&per_page=30'
+        logging.info(f'inputs/{args.prefix} URL: {url} #Covered Books: {len(covered_books)}')
+
+        books = get_book_names_and_url(url, covered_books)
+        if not books:
+            logging.info(f'Stopping at Page# {page_num}')
+            break
+        all_books.extend(books)
+
     csv_name = f'reports/report_{args.prefix}.csv'
     report_name = f'reports/report_{args.prefix}.xlsx'
 
-    write_csv(books, csv_name)
+    write_csv(all_books, csv_name)
     write_excel(csv_name, report_name)
+    os.remove(csv_name)
 
 
 if __name__ == '__main__':
