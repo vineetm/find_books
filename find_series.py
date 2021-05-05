@@ -10,21 +10,22 @@ GR_URL = "http://goodreads.com"
 NEG_RESULT = "0 result(s)"
 
 
-def get_book_names_and_url(series_url, skip_books):
+def get_book_names_and_url(series_url, skip_books, books_dict):
     r = requests.get(series_url)
     if r.status_code != 200:
         logging.info(f'Series URL: bad request {r.status_code}')
-        return []
+        return 0, 0
 
     soup = BeautifulSoup(r.text, features="html.parser")
 
-    books = []
+    num_added, num_skipped = 0, 0
     for book in soup.find_all(class_="gr-h3 gr-h3--serif gr-h3--noMargin"):
         if book["href"].find("/book/show") == -1:
             continue
 
         book_name = book.text
-        if book_name in skip_books:
+        if book_name in skip_books or book_name in books_dict:
+            num_skipped += 1
             continue
 
         logging.info(book_name)
@@ -49,56 +50,11 @@ def get_book_names_and_url(series_url, skip_books):
         bookish_santa = is_bookish_santa_instock(book_name)
         logging.info(f'shbi: {shbi_present} bookish_santa: {bookish_santa}')
 
-        books.append((book_name, book_url, book_editions_url, isbns, bookchor_present, shbi_present, bookish_santa))
-        logging.info(f'Done Book# {len(books)}')
-    return books
+        books_dict[book_name] = (book_name, book_url, book_editions_url, isbns, bookchor_present, shbi_present, bookish_santa)
+        num_added += 1
 
-
-def write_csv(books, csv_name):
-    with open(csv_name, 'w') as fw:
-        writer = csv.writer(fw)
-        writer.writerow(['Book Name', 'URL', 'Editions', 'ISBNS', 'Bookchor', 'SHBI', 'Bookish Santa'])
-        for book in books:
-            datum = []
-            datum.append(book[0])
-            datum.append(book[1])
-            datum.append(book[2])
-            isbns = [
-                str(num)
-                for num in book[3]
-            ]
-
-            bc_isbns = [
-                str(num)
-                for num in book[4]
-            ]
-
-            datum.append(','.join(isbns))
-            datum.append(','.join(bc_isbns))
-            datum.append(book[5])
-            datum.append(book[6])
-            writer.writerow(datum)
-
-
-def write_excel(csv_name, report_name):
-    writer = pd.ExcelWriter(report_name, engine='xlsxwriter')
-    workbook = writer.book
-    text_wrap_format = workbook.add_format({'text_wrap': True})
-
-    number_format = workbook.add_format({'num_format': '#'})
-
-    df = pd.read_csv(csv_name)
-
-    sheet_name = 'Books'
-    df.to_excel(writer, sheet_name=sheet_name, index=False)
-    ws = writer.sheets[sheet_name]
-
-    ws.set_column('A:A', 30)
-    ws.set_column('B:C', 40)
-    ws.set_column('D:D', 75, text_wrap_format)
-    ws.set_column('E:E', 55, number_format)
-    ws.set_column('F:F', 20)
-    writer.save()
+        logging.info(f'Done Book# {len(books_dict)}')
+    return num_added, num_skipped
 
 
 def setup_args():
@@ -123,22 +79,36 @@ def main():
     logging.info(args)
 
     series_url, covered_books = get_info(args.prefix)
+    csv_name = f'reports/report_{args.prefix}.csv'
+    report_name = f'reports/report_{args.prefix}.xlsx'
+    results_file = f'reports/{args.prefix}.books.pkl'
 
-    all_books = []
+    books_dict = find_existing_db(results_file)
+    logging.info(f'START #Books {len(books_dict)}')
+
     for page_num in range(1, 100):
         url = f'{series_url}?page={page_num}&per_page=30'
-        logging.info(f'inputs/{args.prefix} URL: {url} #Covered Books: {len(covered_books)}')
+        logging.info(f'Page#{page_num} URL:{url}')
 
-        books = get_book_names_and_url(url, covered_books)
-        if not books:
-            logging.info(f'Stopping at Page# {page_num}')
+        logging.info(f'inputs/{args.prefix} URL: {url} #Covered Books: {len(covered_books)}')
+        num_added, num_skipped = get_book_names_and_url(url, covered_books, books_dict)
+
+        if not num_skipped and not num_added:
+            logging.info(f'Stopping at Page: {page_num}')
             break
-        all_books.extend(books)
+
+        write_csv(books_dict, csv_name)
+        write_excel(csv_name, report_name)
+        logging.info(f'Saved Info for {len(books_dict)}')
+
+        if num_added:
+            with open(results_file, 'wb') as fw:
+                pkl.dump(books_dict, fw)
 
     csv_name = f'reports/report_{args.prefix}.csv'
     report_name = f'reports/report_{args.prefix}.xlsx'
 
-    write_csv(all_books, csv_name)
+    write_csv(books_dict, csv_name)
     write_excel(csv_name, report_name)
     os.remove(csv_name)
 
