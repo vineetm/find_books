@@ -75,7 +75,17 @@ def get_isbns(url):
     return re.findall(r'ISBN13:\ (\d+)', r.text)
 
 
-def is_bookish_santa_instock(book_name):
+def find_existing_db(results_file):
+    all_books = {}
+    if os.path.exists(results_file):
+        with open(results_file, 'rb') as fr:
+            all_books = pkl.load(fr)
+    else:
+        logging.info(f'Empty initial results')
+    return all_books
+
+
+def query_bookish_santa(book_name):
     url = f'https://www.bookishsanta.com/search?q={book_name}'
     r = requests.get(url)
     if not r.status_code == 200:
@@ -90,7 +100,7 @@ def is_bookish_santa_instock(book_name):
     return len(books) > 0
 
 
-def is_bookchor_instock(isbn):
+def query_bookchor(isbn):
     book_url = f'https://www.bookchor.com/search/?query={isbn}&Lzg4bEc1SURqeDVYOEw3cUJGMkRKQT09=cfcd208495d565ef66e7dff9f98764da'
     r = requests.get(book_url)
     soup = BeautifulSoup(r.text, features="html.parser")
@@ -98,11 +108,10 @@ def is_bookchor_instock(isbn):
     for a in soup.find_all(class_="pi-price"):
         if a.text != 'Out of Stock':
             return True
-
     return False
 
 
-def is_shbi_instock(book_name):
+def query_shbi(book_name):
     book_url = f'https://www.secondhandbooksindia.com/search?query={book_name}'
     r = requests.get(book_url)
     soup = BeautifulSoup(r.text, features="html.parser")
@@ -112,11 +121,14 @@ def is_shbi_instock(book_name):
     return False
 
 
-def find_existing_db(results_file):
-    all_books = {}
-    if os.path.exists(results_file):
-        with open(results_file, 'rb') as fr:
-            all_books = pkl.load(fr)
-    else:
-        logging.info(f'Empty initial results')
-    return all_books
+def query_book(book_name, isbns):
+    results = dict()
+    results['shbi'] = query_shbi(book_name)
+    results['bookchor'] = [
+        isbn
+        for isbn in isbns
+        if query_bookchor(isbn)
+    ]
+
+    results['bookish_santa'] = query_bookish_santa(book_name)
+    return results
