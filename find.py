@@ -29,9 +29,9 @@ def extract_series_name(book_title):
 
 
 def get_title_and_author(book_title):
-    by_si = book_title.find(' by ')
-
-    author = book_title[by_si + 2:].strip()
+    search_key = ' by '
+    by_si = book_title.find(search_key)
+    author = book_title[by_si + len(search_key):].strip()
 
     series_si = book_title.find('(')
     if series_si < 0:
@@ -182,7 +182,8 @@ def main():
         urls = extract_urls_from_file(args.input)
         logging.info(f'{args.input} #URLs: {len(urls)}')
         books = do_all_work(urls)
-        write_books_data(books, args.input.split('/')[1])
+        logging.info(f'#Books to write: {len(books)}')
+        write_books_data(books, args.input.split('/')[1], args.out_dir)
         return
 
     url, covered = get_series_url(args.input)
