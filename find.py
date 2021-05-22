@@ -9,6 +9,7 @@ import pandas as pd
 import re
 import requests
 import concurrent.futures
+from tqdm import tqdm
 
 from utils import query_book, find_editions_page, get_isbns
 logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
@@ -28,7 +29,7 @@ def extract_series_name(book_title):
 
 
 def get_title_and_author(book_title):
-    by_si = book_title.find('by')
+    by_si = book_title.find(' by ')
 
     author = book_title[by_si + 2:].strip()
 
@@ -68,57 +69,6 @@ def get_series_url(input_fname):
     return url, covered_set
 
 
-def get_author_urls(author_url, covered_set):
-    r = requests.get(author_url)
-    if r.status_code != 200:
-        logging.info(f'Series URL: bad request {r.status_code}')
-        return []
-
-    soup = BeautifulSoup(r.text, features="html.parser")
-
-    num_added, num_skipped = 0, 0
-    results = soup.find_all(class_="gr-h3 gr-h3--serif gr-h3--noMargin")
-    for book in soup.find_all(class_='bookTitle'):
-        if book["href"].find("/book/show") == -1:
-            continue
-
-        book_name = book.text.strip()
-        if book_name in skip_books:
-            num_skipped += 1
-            continue
-
-        if book_name in books_dict:
-            logging.info(f'{book_name} already present')
-            num_skipped += 1
-            continue
-
-        logging.info(book_name)
-        book_url = f'{GR_URL}{book["href"]}'
-        logging.info(book_url)
-
-        book_editions_url = find_editions_page(book_url)
-        isbns = get_isbns(book_editions_url)
-        logging.info(f'#ISBNs {len(isbns)}')
-
-        bookchor_present = [
-            isbn
-            for isbn in isbns
-            if is_bookchor_instock(isbn)
-        ]
-
-        logging.info(f'#BookChor: {len(bookchor_present)}')
-
-        shbi_present = is_shbi_instock(book_name)
-        bookish_santa = is_bookish_santa_instock(book_name)
-        logging.info(f'shbi: {shbi_present} bookish_santa: {bookish_santa}')
-
-        books_dict[book_name] = (book_name, book_url, book_editions_url, isbns, bookchor_present, shbi_present,
-                                 bookish_santa)
-        num_added += 1
-        logging.info(f'Done Book# {num_added}')
-    return num_added, num_skipped
-
-
 def get_series_urls(series_url, covered_set, url_type='series'):
     urls = []
     num_covered = 0
@@ -154,6 +104,7 @@ def get_series_urls(series_url, covered_set, url_type='series'):
 def setup_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-type', default='url')
+    parser.add_argument('-out_dir', default='reports')
     parser.add_argument('-input')
     return parser.parse_args()
 
@@ -181,16 +132,16 @@ def do_all_work(urls):
     with concurrent.futures.ProcessPoolExecutor(max_workers=10) as executor:
         results = executor.map(do_work, urls)
 
-        for url, result in zip(urls, results):
-            if result:
-                print(f'{result[0]} Done!')
-                books[result[0]] = result[1:]
-            else:
-                print(f'{url} Failed!')
+        with tqdm(total=len(urls)) as pbar:
+
+            for url, result in zip(urls, results):
+                if result:
+                    books[result[0]] = result[1:]
+                pbar.update(1)
     return books
 
 
-def write_books_data(books, file_suffix, temp_csv='temp.csv'):
+def write_books_data(books, file_suffix, out_dir, temp_csv='temp.csv'):
     columns = ['Title', 'URL', 'Author', 'Series', 'BookChor', 'BookChor:ISBNS', 'SHBI', 'BSanta']
     with open(temp_csv, 'w') as fw:
         writer = csv.writer(fw)
@@ -201,7 +152,8 @@ def write_books_data(books, file_suffix, temp_csv='temp.csv'):
             row = (title, book[0], book[1], book[2], bchor, ', '.join(book[-1]['bookchor']), book[-1]['shbi'], book[-1]['bookish_santa'])
             writer.writerow(row)
 
-    writer = pd.ExcelWriter(f'report_{file_suffix}.xlsx', engine='xlsxwriter')
+    report_path = os.path.join(out_dir, f'report_{file_suffix}.xlsx')
+    writer = pd.ExcelWriter(report_path, engine='xlsxwriter')
     workbook = writer.book
     text_wrap_format = workbook.add_format({'text_wrap': True})
     number_format = workbook.add_format({'num_format': '#'})
@@ -237,7 +189,8 @@ def main():
     urls, num_covered = get_series_urls(url, covered, url_type=args.type)
     logging.info(f'#URLS: {len(urls)} Num_Covered: {num_covered}')
     books = do_all_work(urls)
-    write_books_data(books, args.input.split('/')[1])
+    logging.info(f'#Books to write: {len(books)}')
+    write_books_data(books, args.input.split('/')[1], args.out_dir)
 
 
 
