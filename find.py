@@ -69,15 +69,14 @@ def get_series_url(input_fname):
     return url, covered_set
 
 
-def get_series_urls(series_url, covered_set, url_type='series'):
+def get_series_urls(series_url, url_type='series'):
     urls = []
-    num_covered = 0
 
     for page_num in range(1, 100):
         page_url = f'{series_url}?page={page_num}&per_page=30'
         r = requests.get(page_url)
         if r.status_code != 200:
-            return urls, num_covered
+            return urls
 
         soup = BeautifulSoup(r.text, features="html.parser")
         class_str = "gr-h3 gr-h3--serif gr-h3--noMargin"
@@ -87,26 +86,65 @@ def get_series_urls(series_url, covered_set, url_type='series'):
         results = soup.find_all(class_=class_str)
         if not results:
             logging.info(f'Stopping at Page#{page_num}')
-            return urls, num_covered
+            return urls
 
         for book in results:
             if book["href"].find("/book/show") == -1:
                 continue
 
             book_url = f'{GR_URL}{book["href"]}'
-            if book_url in covered_set:
-                num_covered += 1
-            else:
-                urls.append(book_url)
-    return urls, num_covered
+            urls.append(book_url)
+    return urls
 
 
 def setup_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-type', default='url')
     parser.add_argument('-out_dir', default='reports')
-    parser.add_argument('-input')
+    parser.add_argument('input')
     return parser.parse_args()
+
+
+def extract_type(url):
+    for t in ['series', 'author']:
+        if url.find(f'/{t}/') >= 0:
+            return t
+    return 'book'
+
+
+COVERED = 'COVERED'
+def parse_input(input_fname):
+    num_urls = 0
+    with open(input_fname) as fr:
+        url = fr.readline().strip()
+        book_urls = set()
+
+        while url != COVERED:
+            num_urls += 1
+            url_type = extract_type(url)
+            if url_type == 'book':
+                logging.info(f'{url} {url_type} #Books: 1')
+                book_urls.add(url)
+                url = fr.readline().strip()
+                continue
+            new_urls = get_series_urls(url, url_type)
+            logging.info(f'{url} {url_type} #Books: {len(new_urls)}')
+            book_urls.update(new_urls)
+            url = fr.readline().strip()
+
+        logging.info(f'#URLS: {num_urls} #Books: {len(book_urls)}')
+
+        covered_set = set()
+        for line in fr:
+            line = line.strip()
+            covered_set.add(line)
+
+        search_urls = {
+            book_url
+            for book_url in book_urls
+            if book_url not in covered_set
+        }
+        logging.info(f'#Books-Search: {len(search_urls)} #Books: {len(book_urls)}')
+        return search_urls
 
 
 def extract_urls_from_file(fname):
@@ -129,6 +167,7 @@ def do_work(url):
 
 def do_all_work(urls):
     books = {}
+    failed = []
     with concurrent.futures.ProcessPoolExecutor(max_workers=10) as executor:
         results = executor.map(do_work, urls)
 
@@ -137,8 +176,10 @@ def do_all_work(urls):
             for url, result in zip(urls, results):
                 if result:
                     books[result[0]] = result[1:]
+                else:
+                    failed.append(url)
                 pbar.update(1)
-    return books
+    return books, failed
 
 
 def write_books_data(books, file_suffix, out_dir, temp_csv='temp.csv'):
@@ -178,21 +219,18 @@ def main():
     args = setup_args()
     logging.info(args)
 
-    if args.type == 'url':
-        urls = extract_urls_from_file(args.input)
-        logging.info(f'{args.input} #URLs: {len(urls)}')
-        books = do_all_work(urls)
-        logging.info(f'#Books to write: {len(books)}')
-        write_books_data(books, args.input.split('/')[1], args.out_dir)
-        return
+    book_urls = parse_input(args.input)
+    books, failed = do_all_work(book_urls)
+    logging.info(f'#Books to write: {len(books)} #Failed: {len(failed)}')
 
-    url, covered = get_series_url(args.input)
-    urls, num_covered = get_series_urls(url, covered, url_type=args.type)
-    logging.info(f'#URLS: {len(urls)} Num_Covered: {num_covered}')
-    books = do_all_work(urls)
-    logging.info(f'#Books to write: {len(books)}')
+    if failed:
+        logging.info(f'Retrying for #{len(failed)} Books')
+        new_books, failed = do_all_work(failed)
+        if new_books:
+            for book in new_books:
+                books[book] = new_books[book]
+            logging.info(f'Final Writing {len(books)}')
     write_books_data(books, args.input.split('/')[1], args.out_dir)
-
 
 
 if __name__ == '__main__':
