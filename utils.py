@@ -71,6 +71,4 @@ def query_book(book_name, isbns):
         for isbn in isbns
         if query_bookchor(isbn)
     ]
-
-    results['bookish_santa'] = query_bookish_santa(book_name)
     return results

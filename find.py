@@ -1,5 +1,6 @@
 import argparse
 import os
+import time
 
 from bs4 import BeautifulSoup
 import csv
@@ -101,6 +102,7 @@ def setup_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-out_dir', default='reports')
     parser.add_argument('input')
+    parser.add_argument('-max_retries', default=2, type=int)
     return parser.parse_args()
 
 
@@ -183,14 +185,14 @@ def do_all_work(urls):
 
 
 def write_books_data(books, file_suffix, out_dir, temp_csv='temp.csv'):
-    columns = ['Title', 'URL', 'Author', 'Series', 'BookChor', 'BookChor:ISBNS', 'SHBI', 'BSanta']
+    columns = ['Title', 'URL', 'Author', 'Series', 'BookChor', 'BookChor:ISBNS', 'SHBI']
     with open(temp_csv, 'w') as fw:
         writer = csv.writer(fw)
         writer.writerow(columns)
         for title in books:
             book = books[title]
             bchor = len(book[-1]['bookchor']) > 0
-            row = (title, book[0], book[1], book[2], bchor, ', '.join(book[-1]['bookchor']), book[-1]['shbi'], book[-1]['bookish_santa'])
+            row = (title, book[0], book[1], book[2], bchor, ', '.join(book[-1]['bookchor']), book[-1]['shbi'])
             writer.writerow(row)
 
     report_path = os.path.join(out_dir, f'report_{file_suffix}.xlsx')
@@ -223,13 +225,18 @@ def main():
     books, failed = do_all_work(book_urls)
     logging.info(f'#Books to write: {len(books)} #Failed: {len(failed)}')
 
-    if failed:
+    num_retries = 0
+    while failed and num_retries < args.max_retries:
+        time.sleep(10)
+        logging.info(f'Retry# {num_retries} #Failed: {len(failed)} #Books: {len(books)}')
         logging.info(f'Retrying for #{len(failed)} Books')
         new_books, failed = do_all_work(failed)
         if new_books:
             for book in new_books:
                 books[book] = new_books[book]
             logging.info(f'Final Writing {len(books)}')
+        num_retries += 1
+        
     write_books_data(books, args.input.split('/')[1], args.out_dir)
 
 
