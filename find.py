@@ -12,7 +12,9 @@ import requests
 import concurrent.futures
 from tqdm import tqdm
 
-from utils import query_book, find_editions_page, get_isbns
+from utils import query_book
+from new_utils import find_editions_link, find_isbns
+
 logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
 
 
@@ -160,9 +162,10 @@ def extract_urls_from_file(fname):
 def do_work(url):
     try:
         title, series, author = get_book_meta_data(url)
-        editions_url = find_editions_page(url)
-        query = query_book(title, get_isbns(editions_url))
-        return title, url, author, series, editions_url, query
+        editions_url = find_editions_link(url)
+        isbns = find_isbns(editions_url)
+        query = query_book(title, isbns)
+        return isbns, title, url, author, series, editions_url, query
     except Exception as e:
         return None
 
@@ -177,7 +180,7 @@ def do_all_work(urls):
 
             for url, result in zip(urls, results):
                 if result:
-                    books[result[0]] = result[1:]
+                    books[result[1]] = result
                 else:
                     failed.append(url)
                 pbar.update(1)
@@ -185,14 +188,14 @@ def do_all_work(urls):
 
 
 def write_books_data(books, file_suffix, out_dir, temp_csv='temp.csv'):
-    columns = ['Title', 'URL', 'Author', 'Series', 'BookChor', 'BookChor:ISBNS', 'SHBI']
+    columns = ['ISBNs', 'Title', 'URL', 'Author', 'Series', 'Editions URL', 'BookChor', 'BookChor:ISBNS', 'SHBI']
     with open(temp_csv, 'w') as fw:
         writer = csv.writer(fw)
         writer.writerow(columns)
         for title in books:
             book = books[title]
             bchor = len(book[-1]['bookchor']) > 0
-            row = (title, book[0], book[1], book[2], bchor, ', '.join(book[-1]['bookchor']), book[-1]['shbi'])
+            row = (title, ', '.join(book[0]), book[1], book[2], book[3], book[4], book[5], bchor, ', '.join(book[-1]['bookchor']), book[-1]['shbi'])
             writer.writerow(row)
 
     report_path = os.path.join(out_dir, f'report_{file_suffix}.xlsx')

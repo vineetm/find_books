@@ -2,7 +2,9 @@ bs4
 tqdm
 jupyter
 pandas
+lxml
 requests
+requests-html
 xlsxwriter
 xlrd
 

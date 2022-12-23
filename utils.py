@@ -1,8 +1,4 @@
-import csv
 import logging
-import os
-import pandas as pd
-import pickle as pkl
 import requests
 import re
 from bs4 import BeautifulSoup
