@@ -59,9 +59,10 @@ def query_shbi(book_name):
     return False
 
 
-def query_book(book_name, isbns):
+def query_book(book_name, isbns, skip_shbi=False):
     results = dict()
-    results['shbi'] = query_shbi(book_name)
+    if not skip_shbi:
+        results['shbi'] = query_shbi(book_name)
     results['bookchor'] = [
         isbn
         for isbn in isbns

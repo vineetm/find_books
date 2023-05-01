@@ -1,29 +1,17 @@
-from requests_html import HTMLSession
-import logging
+import requests
 import re
-import time
 
-def find_editions_link(url, max_retries=2, sleep=10):
-    
-    retry_num = 0
-    while retry_num < max_retries:
-        session = HTMLSession()
-        r = session.get(url)
-        elements = r.html.find('a.actionLinkLite')
-        if elements:
-            break
-        retry_num += 1
-        logging.info(f'Retry#{retry_num}: {url}')
-        time.sleep(sleep)
 
-    for element in elements:
-        for abs_link in element.absolute_links:
-            if abs_link.find('editions') > 0:
-                logging.info(f'Retry#{retry_num}: {url} Found link {abs_link}')
-                return abs_link
-
-    logging.info(f'Retry#{retry_num}: {url} did not find link')
-    return None
+def find_editions_link(url):
+    r = requests.get(url)
+    si = r.text.find('/work/editions/')
+    if si == -1:
+        return None
+    span = r.text[si-100:si+100]
+    m = re.search(r'(http.*)\"\}', span)
+    if not m:
+        return None
+    return m.group(1)
 
 def find_isbns(url):
     session = HTMLSession()
