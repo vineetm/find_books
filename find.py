@@ -161,12 +161,16 @@ def extract_urls_from_file(fname):
 
 def do_work(url):
     try:
-        title, series, author = get_book_meta_data(url)
         editions_url = find_editions_link(url)
+        logging.info(f'URL: {url} Editions: {editions_url}')
+        logging.info(f'find ISBNs..')
         isbns = find_isbns(editions_url)
-        query = query_book(title, isbns)
-        return isbns, title, url, author, series, editions_url, query
+        logging.info(f'URL: {url} ISBNs: {isbns}')
+
+        query = query_book('', isbns)
+        return isbns, '', url, '', '', editions_url, query
     except Exception as e:
+        logging.error(f'URL: {url} {e}')
         return None
 
 

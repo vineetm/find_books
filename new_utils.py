@@ -1,5 +1,6 @@
 import requests
 import re
+from requests_html import HTMLSession
 
 
 def find_editions_link(url):
